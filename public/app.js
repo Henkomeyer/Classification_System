@@ -31,10 +31,22 @@ const els = {
   loadSample: document.querySelector("#loadSample"),
   downloadResults: document.querySelector("#downloadResults"),
   downloadJsonResults: document.querySelector("#downloadJsonResults"),
+  themeToggle: document.querySelector("#themeToggle"),
+  densityToggle: document.querySelector("#densityToggle"),
   statTotal: document.querySelector("#statTotal"),
   statCallback: document.querySelector("#statCallback"),
   statOptOut: document.querySelector("#statOptOut"),
   statReview: document.querySelector("#statReview"),
+  insightProvider: document.querySelector("#insightProvider"),
+  insightProviderMeta: document.querySelector("#insightProviderMeta"),
+  insightDataset: document.querySelector("#insightDataset"),
+  insightDatasetMeta: document.querySelector("#insightDatasetMeta"),
+  insightExport: document.querySelector("#insightExport"),
+  insightExportMeta: document.querySelector("#insightExportMeta"),
+  categoryMix: document.querySelector("#categoryMix"),
+  tableSearch: document.querySelector("#tableSearch"),
+  categoryFilter: document.querySelector("#categoryFilter"),
+  clearFilters: document.querySelector("#clearFilters"),
   tableStatus: document.querySelector("#tableStatus"),
   jobStatus: document.querySelector("#jobStatus"),
   jobProgress: document.querySelector("#jobProgress"),
@@ -49,7 +61,8 @@ const els = {
   addCategory: document.querySelector("#addCategory"),
   saveCategories: document.querySelector("#saveCategories"),
   resetCategories: document.querySelector("#resetCategories"),
-  categoryStatus: document.querySelector("#categoryStatus")
+  categoryStatus: document.querySelector("#categoryStatus"),
+  toastRegion: document.querySelector("#toastRegion")
 };
 
 let importedRows = [];
@@ -59,6 +72,10 @@ let categoryConfig = [];
 let aiConfig = null;
 let activeProvider = "ollama";
 let aiDetectTimer = null;
+let tableSearchTerm = "";
+let tableCategoryFilter = "";
+let tableStatusBase = "Import a CSV or load sample data to begin.";
+let toastTimerId = 0;
 
 const CLASSIFY_CHUNK_SIZE = 100;
 const ASYNC_BATCH_CONCURRENCY = 3;
@@ -66,13 +83,13 @@ const providerDefaults = {
   ollama: {
     name: "Ollama",
     placeholder: "http://localhost:11434",
-    hint: "Ollama uses its native local API. Start it with ollama serve, then select an installed model.",
+    hint: "Ollama is local. If it shows offline, run `ollama serve`, verify this URL, then select an installed model.",
     versionLabel: "Ollama"
   },
   vllm: {
     name: "VLLM",
     placeholder: "http://localhost:8000",
-    hint: "VLLM uses the OpenAI-compatible API. Start it with vllm serve and expose /v1/models.",
+    hint: "VLLM uses the OpenAI-compatible API. Start the server, expose /v1/models, and add an API key if required.",
     versionLabel: "VLLM"
   }
 };
@@ -104,6 +121,276 @@ const sampleRows = [
     RX_Message: "Stop harassing me or I will report you to my lawyer"
   }
 ];
+
+function initializeExperience() {
+  const savedTheme = localStorage.getItem("sms-classifier-theme") || "light";
+  const savedDensity = localStorage.getItem("sms-classifier-density") || "comfortable";
+
+  document.body.dataset.theme = savedTheme === "dark" ? "dark" : "light";
+  document.body.dataset.density = savedDensity === "compact" ? "compact" : "comfortable";
+  els.themeToggle.setAttribute("aria-pressed", String(document.body.dataset.theme === "dark"));
+  els.densityToggle.setAttribute("aria-pressed", String(document.body.dataset.density === "compact"));
+  els.themeToggle.title = document.body.dataset.theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  els.densityToggle.title =
+    document.body.dataset.density === "compact" ? "Switch to comfortable table density" : "Switch to compact table density";
+  updateInsights([]);
+  updateFilterControls([]);
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function providerStartupHint(provider = activeProvider) {
+  if (provider === "vllm") {
+    return "Start VLLM on the selected host, expose /v1/models, and add the API key if your server requires one.";
+  }
+
+  return "Start Ollama with `ollama serve`, confirm the URL, and make sure at least one model is installed.";
+}
+
+function friendlyProviderError(error, provider = activeProvider) {
+  const raw = String(error ?? "").trim();
+  const fallback = `Could not reach ${providerName(provider)}. ${providerStartupHint(provider)}`;
+
+  if (!raw) {
+    return fallback;
+  }
+
+  const lower = raw.toLowerCase();
+  if (lower.includes("parse url") || raw.includes("<ip>")) {
+    return `The provider URL is not complete. Replace <ip> with the real server address, or use ${providerDefaults[provider]?.placeholder ?? "a full http:// URL"}.`;
+  }
+
+  if (lower.includes("failed to fetch") || lower.includes("econnrefused") || lower.includes("connect")) {
+    return `${providerName(provider)} did not answer at this URL. ${providerStartupHint(provider)}`;
+  }
+
+  if (lower.includes("404") || lower.includes("not found")) {
+    return `${providerName(provider)} answered, but the expected model endpoint was not found. Check the provider type and URL.`;
+  }
+
+  if (lower.includes("unauthorized") || lower.includes("401") || lower.includes("403")) {
+    return `${providerName(provider)} rejected the request. Check the API key and server permissions.`;
+  }
+
+  return raw;
+}
+
+function selectedCategoryLabel() {
+  const selectedOption = els.categoryFilter.selectedOptions?.[0];
+  return selectedOption?.textContent?.trim() || tableCategoryFilter || "selected category";
+}
+
+function activeFilterSummary() {
+  const filters = [];
+
+  if (tableSearchTerm) {
+    filters.push(`search "${tableSearchTerm}"`);
+  }
+
+  if (tableCategoryFilter) {
+    filters.push(`category "${selectedCategoryLabel()}"`);
+  }
+
+  return filters;
+}
+
+function setTableStatus(text, { persist = false } = {}) {
+  if (persist) {
+    tableStatusBase = text;
+  }
+
+  els.tableStatus.textContent = text;
+}
+
+function updateFilterControls(rows = classifiedRows) {
+  const activeFilters = activeFilterSummary();
+  const visibleCount = visibleRows(rows).length;
+  const totalCount = rows.length;
+
+  els.clearFilters.disabled = activeFilters.length === 0;
+  els.clearFilters.title = activeFilters.length ? `Clear ${activeFilters.join(" and ")}` : "No filters are active";
+
+  if (!totalCount || activeFilters.length === 0) {
+    els.tableSearch.title = "Search imported replies, categories, next steps, and reasons";
+    els.categoryFilter.title = "Filter by classification category";
+    setTableStatus(tableStatusBase);
+    return;
+  }
+
+  const summary = `${pluralize(visibleCount, "reply", "replies")} shown of ${totalCount} (${activeFilters.join(", ")}).`;
+  els.tableSearch.title = summary;
+  els.categoryFilter.title = summary;
+  setTableStatus(summary);
+}
+
+function resetTableFilters() {
+  tableSearchTerm = "";
+  tableCategoryFilter = "";
+  els.tableSearch.value = "";
+  els.categoryFilter.value = "";
+}
+
+function importHealth(rows, sentColumn, replyColumn) {
+  const missingReplies = rows.filter((row) => !String(row[replyColumn] ?? "").trim()).length;
+  const missingSent = sentColumn ? rows.filter((row) => !String(row[sentColumn] ?? "").trim()).length : 0;
+  const notes = [];
+
+  if (missingReplies > 0) {
+    notes.push(`${pluralize(missingReplies, "row")} missing a reply`);
+  }
+
+  if (sentColumn && missingSent > 0) {
+    notes.push(`${pluralize(missingSent, "row")} missing sent SMS context`);
+  }
+
+  return notes;
+}
+
+function showToast(title, message = "", state = "info", options = {}) {
+  const toast = document.createElement("div");
+  toast.className = `toast ${state}`.trim();
+  toast.setAttribute("role", state === "error" ? "alert" : "status");
+  toast.dataset.toastId = String((toastTimerId += 1));
+  toast.innerHTML = `<strong>${escapeHtml(title)}</strong>${message ? `<div>${escapeHtml(message)}</div>` : ""}`;
+  if (options.detail) {
+    toast.title = options.detail;
+  }
+
+  els.toastRegion.append(toast);
+  [...els.toastRegion.querySelectorAll(".toast")]
+    .slice(0, -3)
+    .forEach((oldToast) => oldToast.remove());
+  window.setTimeout(() => toast.remove(), options.duration ?? (state === "error" ? 7200 : 4600));
+}
+
+function toggleTheme() {
+  const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+  document.body.dataset.theme = nextTheme;
+  localStorage.setItem("sms-classifier-theme", nextTheme);
+  els.themeToggle.setAttribute("aria-pressed", String(nextTheme === "dark"));
+  els.themeToggle.title = nextTheme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  showToast("Theme updated", `${nextTheme === "dark" ? "Dark" : "Light"} theme is active.`);
+}
+
+function toggleDensity() {
+  const nextDensity = document.body.dataset.density === "compact" ? "comfortable" : "compact";
+  document.body.dataset.density = nextDensity;
+  localStorage.setItem("sms-classifier-density", nextDensity);
+  els.densityToggle.setAttribute("aria-pressed", String(nextDensity === "compact"));
+  els.densityToggle.title = nextDensity === "compact" ? "Switch to comfortable table density" : "Switch to compact table density";
+  showToast("Table density updated", `${nextDensity === "compact" ? "Compact" : "Comfortable"} rows are active.`);
+}
+
+function rowMatchesFilters(row) {
+  const categoryValue = row.category ?? row.classification_id ?? "";
+  if (tableCategoryFilter && categoryValue !== tableCategoryFilter && row.classification_id !== tableCategoryFilter) {
+    return false;
+  }
+
+  if (!tableSearchTerm) {
+    return true;
+  }
+
+  const haystack = [
+    row.sentText,
+    row.text,
+    row.classification_id,
+    row.category,
+    row.label,
+    row.next_step,
+    row.reason,
+    row.error
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(tableSearchTerm);
+}
+
+function visibleRows(rows) {
+  return rows.filter(rowMatchesFilters);
+}
+
+function updateCategoryFilterOptions(rows = classifiedRows) {
+  const selected = tableCategoryFilter;
+  const options = new Map();
+
+  rows.forEach((row) => {
+    const value = row.category ?? row.classification_id ?? "";
+    const label = row.label ?? row.category ?? row.classification_id ?? "";
+    if (value && label && value !== "pending") {
+      options.set(value, label);
+    }
+  });
+
+  categoryConfig.forEach((category) => {
+    if (category.id && category.label) {
+      options.set(category.id, category.label);
+    }
+  });
+
+  els.categoryFilter.innerHTML = `<option value="">All categories</option>${[...options.entries()]
+    .map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+    .join("")}`;
+  els.categoryFilter.value = options.has(selected) ? selected : "";
+  tableCategoryFilter = els.categoryFilter.value;
+}
+
+function updateInsights(rows) {
+  const completeRows = rows.filter((row) => row.category && row.category !== "pending");
+  const errors = rows.filter((row) => row.error).length;
+  const pending = rows.filter((row) => row.category === "pending" || (!row.category && !row.error)).length;
+  const exportReady = completeRows.length > 0;
+
+  els.insightDataset.textContent = rows.length ? `${rows.length} row${rows.length === 1 ? "" : "s"}` : "No file";
+  els.insightDatasetMeta.textContent = rows.length
+    ? `${completeRows.length} classified, ${pending} pending, ${errors} error${errors === 1 ? "" : "s"}.`
+    : "Import a CSV or load sample rows to start an operator review queue.";
+  els.insightExport.textContent = exportReady ? "Ready" : "Locked";
+  els.insightExportMeta.textContent = exportReady
+    ? "CSV and JSON export include the latest processed rows."
+    : rows.length
+      ? "Run classification before exporting operator results."
+      : "Classified rows enable CSV and JSON export.";
+
+  const counts = new Map();
+  completeRows.forEach((row) => {
+    const key = row.category ?? row.classification_id ?? "unknown";
+    const existing = counts.get(key) ?? {
+      label: row.label ?? key,
+      color: row.color ?? "#687f91",
+      count: 0
+    };
+    existing.count += 1;
+    counts.set(key, existing);
+  });
+
+  if (counts.size === 0) {
+    els.categoryMix.innerHTML = rows.length
+      ? '<div class="mix-empty">Classify the imported replies to chart routing distribution.</div>'
+      : '<div class="mix-empty">No classifications to chart yet.</div>';
+    return;
+  }
+
+  const total = completeRows.length || 1;
+  els.categoryMix.innerHTML = [...counts.values()]
+    .sort((a, b) => b.count - a.count)
+    .map((item) => {
+      const percent = Math.round((item.count / total) * 100);
+      return `
+        <div class="mix-row">
+          <span>${escapeHtml(item.label)}</span>
+          <div class="mix-track" aria-hidden="true">
+            <div class="mix-fill" style="--mix-width: ${percent}%; --mix-color: ${escapeHtml(item.color)}"></div>
+          </div>
+          <strong>${percent}%</strong>
+        </div>
+      `;
+    })
+    .join("");
+}
 
 function setJobStatus(text, state = "idle") {
   els.jobStatus.textContent = text;
@@ -170,7 +457,7 @@ function activeProviderConfig() {
 
 function renderAiModels(models, selectedModel) {
   if (models.length === 0) {
-    els.ollamaModel.innerHTML = '<option value="">No installed models detected</option>';
+    els.ollamaModel.innerHTML = '<option value="">No models available yet</option>';
     els.ollamaModel.disabled = true;
     return "";
   }
@@ -228,29 +515,38 @@ function renderAiConnection(payload, message = "") {
 
   if (connected) {
     setAiConnectionState("connected", `${providerName(provider)} connected - ${selectedModel || "no model selected"}`);
+    els.insightProvider.textContent = providerName(provider);
+    els.insightProviderMeta.textContent = selectedModel
+      ? `${selectedModel} is selected and ready for operators.`
+      : "Provider is reachable. Select a model, then save the provider.";
     els.ollamaStatus.className = "result-card empty";
     els.ollamaStatus.innerHTML = `
-      <strong>${escapeHtml(message || "Connection ready")}</strong>
-      <div>${escapeHtml(config.host)}${selectedModel ? ` - ${escapeHtml(selectedModel)}` : ""}</div>
+      <strong>${escapeHtml(message || "Provider ready")}</strong>
+      <div>${escapeHtml(config.host)}${selectedModel ? ` - ${escapeHtml(selectedModel)}` : " - choose a model before classifying"}</div>
     `;
     return;
   }
 
   if (payload.reachable) {
     setAiConnectionState("checking", `${providerName(provider)} URL reachable - loading models`);
+    els.insightProvider.textContent = providerName(provider);
+    els.insightProviderMeta.textContent = "URL reachable. Waiting for the model list.";
     els.ollamaStatus.className = "result-card empty";
     els.ollamaStatus.innerHTML = `
       <strong>URL reachable</strong>
-      <div>${escapeHtml(payload.error ?? `Now checking installed models from ${providerName(provider)}.`)}</div>
+      <div>${escapeHtml(payload.error ?? `Loading models from ${providerName(provider)}. If none appear, confirm the server exposes its model list.`)}</div>
     `;
     return;
   }
 
   setAiConnectionState("disconnected", `${providerName(provider)} connection unavailable`);
+  els.insightProvider.textContent = "Offline";
+  const guidance = friendlyProviderError(payload.error, provider);
+  els.insightProviderMeta.textContent = guidance;
   els.ollamaStatus.className = "result-card";
   els.ollamaStatus.innerHTML = `
-    <strong>Could not connect</strong>
-    <div>${escapeHtml(payload.error ?? `Check the ${providerName(provider)} URL and make sure the provider is running.`)}</div>
+    <strong>${escapeHtml(`${providerName(provider)} is offline`)}</strong>
+    <div>${escapeHtml(guidance)}</div>
   `;
 }
 
@@ -293,7 +589,7 @@ async function loadAiConnection() {
   }
 }
 
-async function detectAiConnection({ persist = false } = {}) {
+async function detectAiConnection({ persist = false, notify = false } = {}) {
   window.clearTimeout(aiDetectTimer);
 
   const host = els.ollamaHost.value.trim();
@@ -303,7 +599,7 @@ async function detectAiConnection({ persist = false } = {}) {
       config: { host },
       connected: false,
       models: [],
-      error: `Enter a ${providerName()} URL first.`
+      error: `Enter a ${providerName()} URL first. ${providerStartupHint()}`
     });
     return;
   }
@@ -312,13 +608,16 @@ async function detectAiConnection({ persist = false } = {}) {
   els.saveOllama.disabled = true;
   setAiConnectionState("checking", `Testing ${providerName()} URL`);
   els.ollamaStatus.className = "result-card empty";
-  els.ollamaStatus.textContent = `Testing whether the ${providerName()} URL is reachable...`;
+  els.ollamaStatus.textContent = `Testing ${providerName()} and loading the model list if the URL responds...`;
 
   try {
     const reachability = await postJson("/ai/ping", providerRequestBody({ persistModel: false }));
 
     if (!reachability.reachable) {
       renderAiConnection(reachability);
+      if (notify || persist) {
+        showToast(`${providerName(reachability.provider)} is offline`, friendlyProviderError(reachability.error, reachability.provider), "error");
+      }
       return;
     }
 
@@ -334,7 +633,18 @@ async function detectAiConnection({ persist = false } = {}) {
       ...providerRequestBody()
     });
     renderAiConnection(payload, persist ? "Provider saved" : "Models detected");
+    if (persist) {
+      const savedModel = payload.config?.model || els.ollamaModel.value;
+      showToast(
+        "Provider saved",
+        `${providerName(payload.provider)}${savedModel ? ` using ${savedModel}` : ""} is ready for classification.`,
+        "success"
+      );
+    }
   } catch (error) {
+    if (notify || persist) {
+      showToast(`${providerName()} check failed`, friendlyProviderError(error.message), "error");
+    }
     renderAiConnection(
       error.payload ?? {
         provider: activeProvider,
@@ -357,9 +667,13 @@ function scheduleAiAutoDetect() {
     els.saveOllama.disabled = true;
 
     if (host.trim()) {
-      setAiConnectionState("checking", `Finish the ${providerName()} URL to detect models`);
+      setAiConnectionState("checking", `Finish the ${providerName()} URL`);
+      els.ollamaStatus.className = "result-card empty";
+      els.ollamaStatus.innerHTML = `<strong>Provider URL incomplete</strong><div>Use a full URL such as ${escapeHtml(providerDefaults[activeProvider].placeholder)}.</div>`;
     } else {
       setAiConnectionState("disconnected", `Enter a ${providerName()} URL`);
+      els.ollamaStatus.className = "result-card empty";
+      els.ollamaStatus.innerHTML = `<strong>Provider URL needed</strong><div>${escapeHtml(providerStartupHint())}</div>`;
     }
 
     return;
@@ -385,7 +699,8 @@ function switchProvider(provider) {
   els.saveOllama.disabled = true;
   setAiConnectionState("checking", `${providerName()} selected`);
   els.ollamaStatus.className = "result-card empty";
-  els.ollamaStatus.innerHTML = `<strong>${escapeHtml(providerName())} selected</strong><div>Test the provider URL to load available models.</div>`;
+  els.ollamaStatus.innerHTML = `<strong>${escapeHtml(providerName())} selected</strong><div>${escapeHtml(providerStartupHint())}</div>`;
+  showToast("Provider switched", `${providerName()} settings are now in view. Test the URL before classifying.`);
 }
 
 function formatServerAddress(config) {
@@ -439,6 +754,7 @@ async function loadServerConfig() {
     els.serverConnectionBadge.textContent = "Error";
     els.serverStatus.className = "result-card";
     els.serverStatus.innerHTML = `<strong>Could not load server settings</strong><div>${escapeHtml(error.message)}</div>`;
+    showToast("Server settings unavailable", error.message, "error");
   }
 }
 
@@ -454,11 +770,13 @@ async function saveServerConfig() {
       port: Number(els.serverPort.value)
     });
     renderServerConfig(payload, "Saved for next restart");
+    showToast("Server settings saved", "Restart the app to apply bind IP or port changes.", "success");
   } catch (error) {
     els.serverConnectionBadge.className = "connection-badge disconnected";
     els.serverConnectionBadge.textContent = "Invalid";
     els.serverStatus.className = "result-card";
     els.serverStatus.innerHTML = `<strong>Could not save server settings</strong><div>${escapeHtml(error.message)}</div>`;
+    showToast("Server settings not saved", error.message, "error");
   } finally {
     els.saveServerConfig.disabled = false;
   }
@@ -635,22 +953,39 @@ function updateStats(rows) {
 }
 
 function renderRows(rows) {
+  updateCategoryFilterOptions(rows);
+  updateStats(rows);
+  updateInsights(rows);
+  updateFilterControls(rows);
+
   if (rows.length === 0) {
-    els.resultsBody.innerHTML = '<tr><td colspan="8" class="empty-table">No SMS replies loaded.</td></tr>';
-    updateStats([]);
+    els.resultsBody.innerHTML =
+      '<tr><td colspan="8" class="empty-table">No SMS replies loaded. Import a CSV or use the sample data to preview the workflow.</td></tr>';
     els.downloadResults.disabled = true;
     els.downloadJsonResults.disabled = true;
     return;
   }
 
-  els.resultsBody.innerHTML = rows
+  const displayRows = visibleRows(rows);
+
+  if (displayRows.length === 0) {
+    const filters = activeFilterSummary();
+    els.resultsBody.innerHTML = `<tr><td colspan="8" class="empty-table">No replies match ${
+      filters.length ? escapeHtml(filters.join(" and ")) : "the current filters"
+    }. Clear filters to return to all imported replies.</td></tr>`;
+    els.downloadResults.disabled = rows.every((row) => !row.category && !row.error);
+    els.downloadJsonResults.disabled = els.downloadResults.disabled;
+    return;
+  }
+
+  els.resultsBody.innerHTML = displayRows
     .map((row, index) => {
       const category = row.error ? "error" : row.category ?? "pending";
       const confidence = row.confidence == null ? "" : `${Math.round(row.confidence * 100)}%`;
 
       return `
         <tr>
-          <td>${index + 1}</td>
+          <td>${rows.indexOf(row) + 1}</td>
           <td class="sms-cell">${escapeHtml(row.sentText)}</td>
           <td class="sms-cell">${escapeHtml(row.text)}</td>
           <td>${escapeHtml(row.classification_id ?? "")}</td>
@@ -663,7 +998,6 @@ function renderRows(rows) {
     })
     .join("");
 
-  updateStats(rows);
   els.downloadResults.disabled = rows.every((row) => !row.category && !row.error);
   els.downloadJsonResults.disabled = els.downloadResults.disabled;
 }
@@ -672,6 +1006,8 @@ async function loadCategories() {
   const payload = await fetch("/categories").then((response) => response.json());
   categoryConfig = payload.categories ?? [];
   renderCategoryEditor();
+  updateCategoryFilterOptions();
+  updateFilterControls();
   els.categoryStatus.className = "result-card empty";
   els.categoryStatus.textContent = `${categoryConfig.length} classifications loaded.`;
 }
@@ -773,11 +1109,14 @@ async function saveCategories() {
     });
     categoryConfig = payload.categories;
     renderCategoryEditor();
+    updateCategoryFilterOptions();
     els.categoryStatus.className = "result-card empty";
     els.categoryStatus.textContent = `${categoryConfig.length} classifications saved.`;
+    showToast("Classifications saved", `${categoryConfig.length} routing categories are now active.`, "success");
   } catch (error) {
     els.categoryStatus.className = "result-card";
     els.categoryStatus.innerHTML = `<strong>Save failed</strong><div>${escapeHtml(error.message)}</div>`;
+    showToast("Classifications not saved", error.message, "error");
   } finally {
     els.saveCategories.disabled = false;
   }
@@ -792,11 +1131,14 @@ async function resetCategories() {
     const payload = await postJson("/categories/reset", {});
     categoryConfig = payload.categories;
     renderCategoryEditor();
+    updateCategoryFilterOptions();
     els.categoryStatus.className = "result-card empty";
     els.categoryStatus.textContent = "Default classifications restored.";
+    showToast("Defaults restored", "The original classification set is back in place.", "success");
   } catch (error) {
     els.categoryStatus.className = "result-card";
     els.categoryStatus.innerHTML = `<strong>Reset failed</strong><div>${escapeHtml(error.message)}</div>`;
+    showToast("Defaults not restored", error.message, "error");
   } finally {
     els.resetCategories.disabled = false;
   }
@@ -825,29 +1167,38 @@ async function classifySingle() {
   const text = els.singleSms.value.trim();
   if (!text) {
     els.singleResult.className = "result-card empty";
-    els.singleResult.textContent = "Enter an SMS reply first.";
+    els.singleResult.innerHTML = "<strong>Reply needed</strong><div>Paste the customer reply, then classify it. Sent SMS context is optional but improves routing.</div>";
+    showToast("Reply needed", "Paste an SMS reply before running single classification.");
     return;
   }
 
   els.classifySingle.disabled = true;
+  els.classifySingle.setAttribute("aria-busy", "true");
   els.singleResult.className = "result-card";
-  els.singleResult.textContent = "Classifying...";
+  els.singleResult.textContent = "Classifying this reply...";
 
   try {
     const result = await postJson("/classify", { sentText, text });
     els.singleResult.innerHTML = `
-      <strong>${escapeHtml(result.classification_id)} - ${escapeHtml(result.label)} - ${Math.round(result.confidence * 100)}%</strong>
-      <div>${escapeHtml(result.next_step)}</div>
-      <div>${escapeHtml(result.reason)}</div>
+      <div class="single-classification">
+        <span class="badge ${escapeHtml(result.category)}" style="--badge-color: ${escapeHtml(result.color ?? "#687f91")}">
+          ${escapeHtml(result.classification_id)} - ${escapeHtml(result.label)} - ${Math.round(result.confidence * 100)}%
+        </span>
+        <p><strong>Next step</strong>${escapeHtml(result.next_step)}</p>
+        <p><strong>Reason</strong>${escapeHtml(result.reason)}</p>
+      </div>
     `;
+    showToast("Reply classified", `${result.classification_id} - ${result.label}`, "success");
   } catch (error) {
     els.singleResult.innerHTML = `<strong>Classification failed</strong><div>${escapeHtml(error.message)}</div>`;
+    showToast("Classification failed", error.message, "error");
   } finally {
     els.classifySingle.disabled = false;
+    els.classifySingle.removeAttribute("aria-busy");
   }
 }
 
-function loadImportedRows(rows, headerList, name) {
+function loadImportedRows(rows, headerList, name, source = "csv") {
   const sentColumn = pickLikelySentColumn(headerList);
   const replyColumn = pickLikelyReplyColumn(headerList);
 
@@ -859,21 +1210,40 @@ function loadImportedRows(rows, headerList, name) {
   }));
 
   els.fileName.textContent = name;
+  resetTableFilters();
   updateColumnSelects();
   renderRows(classifiedRows);
-  els.tableStatus.textContent = `${rows.length} SMS replies imported. Confirm TX_Msg and RX_Message columns, then classify.`;
+  const selectedSentValue = els.sentColumn.value;
+  const selectedReplyValue = els.replyColumn.value;
+  const selectedSent = selectedSentValue || "none";
+  const selectedReply = selectedReplyValue || "none";
+  const notes = importHealth(rows, selectedSentValue, selectedReplyValue);
+  const baseStatus = `${pluralize(rows.length, "SMS reply", "SMS replies")} ${
+    source === "sample" ? "loaded from sample data" : "imported"
+  }. Using ${selectedSent} as sent SMS and ${selectedReply} as reply.`;
+  setTableStatus(notes.length ? `${baseStatus} Check ${notes.join(" and ")} before classifying.` : `${baseStatus} Ready to classify.`, {
+    persist: true
+  });
   setJobStatus("Ready");
   setProgress(0);
   els.batchProgressPanel.classList.remove("active", "is-processing");
+  showToast(
+    source === "sample" ? "Sample loaded" : "CSV imported",
+    `${pluralize(rows.length, "reply", "replies")} ready. Detected reply column: ${selectedReply}.`,
+    "success",
+    { detail: notes.join("; ") }
+  );
 }
 
-async function handleFileImport(event) {
-  const file = event.target.files?.[0];
+async function importCsvFile(file) {
   if (!file) {
+    showToast("No file selected", "Choose a CSV with a header row and at least one reply.");
     return;
   }
 
   try {
+    setJobStatus("Importing", "busy");
+    setTableStatus(`Reading ${file.name}...`);
     const text = await file.text();
     const csvRows = parseCsv(text);
 
@@ -885,17 +1255,23 @@ async function handleFileImport(event) {
     loadImportedRows(parsed.rows, parsed.headers, file.name);
   } catch (error) {
     setJobStatus("Import error", "error");
-    els.tableStatus.textContent = error.message;
+    setTableStatus(error.message, { persist: true });
+    showToast("Import failed", error.message, "error");
   }
 }
 
+async function handleFileImport(event) {
+  await importCsvFile(event.target.files?.[0]);
+}
+
 function loadSample() {
-  loadImportedRows(sampleRows, ["customer", "TX_Msg", "RX_Message"], "sample-data.csv");
+  loadImportedRows(sampleRows, ["customer", "TX_Msg", "RX_Message"], "sample-data.csv", "sample");
 }
 
 async function classifyCsvRows() {
   const sentColumn = els.sentColumn.value;
   const replyColumn = els.replyColumn.value;
+  const missingReplyCount = importedRows.filter((row) => !String(row[replyColumn] ?? "").trim()).length;
   const messages = importedRows.map((row, index) => ({
     id: row.id ?? row.ID ?? row.customer ?? String(index + 1),
     sentText: sentColumn ? row[sentColumn] ?? "" : "",
@@ -912,8 +1288,16 @@ async function classifyCsvRows() {
   setJobStatus("Classifying", "busy");
   setProgress(0);
   els.classifyCsv.disabled = true;
+  els.classifyCsv.setAttribute("aria-busy", "true");
   els.downloadResults.disabled = true;
-  els.tableStatus.textContent = `Classifying 0 of ${messages.length} SMS replies...`;
+  setTableStatus(
+    missingReplyCount > 0
+      ? `Classifying 0 of ${messages.length} SMS replies. ${pluralize(missingReplyCount, "row")} ${
+          missingReplyCount === 1 ? "has" : "have"
+        } no reply text.`
+      : `Classifying 0 of ${messages.length} SMS replies...`
+  );
+  showToast("Classification started", `${pluralize(messages.length, "reply", "replies")} queued in batches of ${CLASSIFY_CHUNK_SIZE}.`);
 
   try {
     const batches = buildBatches(messages);
@@ -963,7 +1347,7 @@ async function classifyCsvRows() {
       renderRows(classifiedRows);
       renderBatchProgress(batches, completedRows, messages.length);
       setProgress((completedRows / messages.length) * 100);
-      els.tableStatus.textContent = `Classifying ${completedRows} of ${messages.length} SMS replies...`;
+      setTableStatus(`Classifying ${completedRows} of ${messages.length} SMS replies...`);
 
       await processNextBatch();
     }
@@ -979,16 +1363,25 @@ async function classifyCsvRows() {
     setJobStatus(failedBatches > 0 ? "Complete with errors" : "Complete", failedBatches > 0 ? "error" : "done");
     setProgress(100);
     renderBatchProgress(batches, messages.length, messages.length);
-    els.tableStatus.textContent =
+    setTableStatus(
       failedBatches > 0
         ? `${classifiedRows.length} SMS replies processed with ${failedBatches} failed batch request(s).`
-        : `${classifiedRows.length} SMS replies classified.`;
+        : `${classifiedRows.length} SMS replies classified. CSV and JSON exports are ready.`,
+      { persist: true }
+    );
+    showToast(
+      failedBatches > 0 ? "Batch completed with errors" : "Batch complete",
+      tableStatusBase,
+      failedBatches > 0 ? "error" : "success"
+    );
   } catch (error) {
     setJobStatus("Error", "error");
     setProgress(100);
-    els.tableStatus.textContent = error.message;
+    setTableStatus(error.message, { persist: true });
+    showToast("Batch failed", error.message, "error");
   } finally {
     els.classifyCsv.disabled = importedRows.length === 0;
+    els.classifyCsv.removeAttribute("aria-busy");
   }
 }
 
@@ -1001,6 +1394,7 @@ function toCsvValue(value) {
 }
 
 function downloadResults() {
+  const readyRows = classifiedRows.filter((row) => row.category || row.error).length;
   const csv = [
     ["sent_text", "reply_text", "classification_id", "category", "label", "color", "confidence", "next_step", "reason", "error"].join(","),
     ...classifiedRows.map((row) =>
@@ -1017,9 +1411,11 @@ function downloadResults() {
   link.download = "sms-classification-results.csv";
   link.click();
   URL.revokeObjectURL(url);
+  showToast("CSV export started", `${pluralize(readyRows, "processed row")} included.`);
 }
 
 function downloadJsonResults() {
+  const readyRows = classifiedRows.filter((row) => row.category || row.error).length;
   const blob = new Blob([JSON.stringify(classifiedRows, null, 2)], {
     type: "application/json;charset=utf-8"
   });
@@ -1029,15 +1425,34 @@ function downloadJsonResults() {
   link.download = "sms-classification-results.json";
   link.click();
   URL.revokeObjectURL(url);
+  showToast("JSON export started", `${pluralize(readyRows, "processed row")} included.`);
 }
 
 els.classifySingle.addEventListener("click", classifySingle);
+els.themeToggle.addEventListener("click", toggleTheme);
+els.densityToggle.addEventListener("click", toggleDensity);
 els.singleSms.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
     classifySingle();
   }
 });
 els.csvFile.addEventListener("change", handleFileImport);
+const fileDrop = document.querySelector(".file-drop");
+["dragenter", "dragover"].forEach((eventName) => {
+  fileDrop.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    fileDrop.classList.add("drag-over");
+  });
+});
+["dragleave", "drop"].forEach((eventName) => {
+  fileDrop.addEventListener(eventName, () => {
+    fileDrop.classList.remove("drag-over");
+  });
+});
+fileDrop.addEventListener("drop", (event) => {
+  event.preventDefault();
+  importCsvFile(event.dataTransfer?.files?.[0]);
+});
 els.categoryEditor.addEventListener("click", (event) => {
   const deleteIndex = event.target?.dataset?.deleteIndex;
   if (deleteIndex == null) {
@@ -1070,20 +1485,46 @@ function refreshPreviewFromColumns() {
     sentText: sentColumn ? row[sentColumn] ?? "" : "",
     text: row[replyColumn] ?? ""
   }));
+  const notes = importHealth(importedRows, sentColumn, replyColumn);
+  const baseStatus = `${pluralize(importedRows.length, "SMS reply", "SMS replies")} preview updated. Using ${
+    sentColumn || "no sent SMS column"
+  } as sent SMS and ${replyColumn || "no reply column"} as reply.`;
+  setTableStatus(notes.length ? `${baseStatus} Check ${notes.join(" and ")}.` : baseStatus, { persist: true });
   renderRows(classifiedRows);
+  showToast("Column preview updated", `Reply column: ${replyColumn || "none"}.`);
 }
 
 els.sentColumn.addEventListener("change", refreshPreviewFromColumns);
 els.replyColumn.addEventListener("change", refreshPreviewFromColumns);
+els.tableSearch.addEventListener("input", () => {
+  tableSearchTerm = els.tableSearch.value.trim().toLowerCase();
+  renderRows(classifiedRows);
+});
+els.categoryFilter.addEventListener("change", () => {
+  tableCategoryFilter = els.categoryFilter.value;
+  renderRows(classifiedRows);
+});
+els.clearFilters.addEventListener("click", () => {
+  const hadFilters = activeFilterSummary().length > 0;
+  resetTableFilters();
+  renderRows(classifiedRows);
+  if (hadFilters) {
+    showToast("Filters cleared", `${pluralize(classifiedRows.length, "reply", "replies")} visible again.`);
+  }
+});
 els.providerButtons.forEach((button) => {
   button.addEventListener("click", () => switchProvider(button.dataset.provider));
 });
 els.ollamaHost.addEventListener("input", scheduleAiAutoDetect);
 els.vllmApiKey.addEventListener("input", () => {
   els.saveOllama.disabled = true;
+  if (activeProvider === "vllm") {
+    els.ollamaStatus.className = "result-card empty";
+    els.ollamaStatus.innerHTML = "<strong>API key changed</strong><div>Test the VLLM URL again before saving this provider.</div>";
+  }
 });
-els.detectOllama.addEventListener("click", () => detectAiConnection());
-els.saveOllama.addEventListener("click", () => detectAiConnection({ persist: true }));
+els.detectOllama.addEventListener("click", () => detectAiConnection({ notify: true }));
+els.saveOllama.addEventListener("click", () => detectAiConnection({ persist: true, notify: true }));
 els.ollamaModel.addEventListener("change", () => {
   els.saveOllama.disabled = !els.ollamaModel.value;
   els.ollamaStatus.className = "result-card empty";
@@ -1106,10 +1547,12 @@ els.addCategory.addEventListener("click", addCategory);
 els.saveCategories.addEventListener("click", saveCategories);
 els.resetCategories.addEventListener("click", resetCategories);
 
+initializeExperience();
 loadAiConnection();
 loadServerConfig();
 
 loadCategories().catch((error) => {
   els.categoryStatus.className = "result-card";
   els.categoryStatus.innerHTML = `<strong>Could not load classifications</strong><div>${escapeHtml(error.message)}</div>`;
+  showToast("Classifications unavailable", error.message, "error");
 });

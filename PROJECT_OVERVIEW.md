@@ -1,23 +1,45 @@
-# SMS Classification Project Overview
+# SignalOps AI SMS Classification - Project Overview
 
 ## Purpose
 
-SMS Classification is a local AI-assisted triage console for debt-collection SMS replies. It imports replies from CSV, classifies each reply into a configured business action ID, shows results live while batches process, and exports the processed output for downstream systems.
+SignalOps AI SMS Classification is a local operations console for routing debt-collection SMS replies. It combines deterministic business rules with a constrained local AI provider so staff can import replies, classify them, review the routing outcome, and export downstream-ready results.
 
-The system is designed for operational routing, not free-form chatbot replies. The AI is constrained to return only the configured classification ID, while the application owns the business labels, next steps, colors, and export shape.
+The product is intentionally not a chatbot. The model receives the sent SMS, the reply SMS, and the configured classification definitions. It returns one valid classification ID. The application owns the final business output.
 
-## Main Capabilities
+## Product Surface
 
-- Classify a single SMS reply from the browser.
-- Import CSV files with `TX_Msg` as the sent SMS and `RX_Message` as the debtor reply.
-- Preserve sent-message context during classification so ambiguous replies can be interpreted more accurately.
-- Process large files in async frontend batches and show live progress as each batch completes.
-- Export processed results to CSV or JSON.
-- Configure classification IDs, labels, colors, descriptions, examples, and next steps from the UI.
-- Connect to either Ollama or VLLM.
-- Detect available models from the selected AI provider before saving the provider configuration.
-- Configure server bind IP and port for Windows Server deployment.
-- Use deterministic rules for obvious high-confidence replies before calling the AI provider.
+| Surface | Description |
+| --- | --- |
+| Single reply | Classify one reply with optional sent-message context. |
+| CSV import | Import rows, map sent/reply columns, and preview pending records. |
+| Batch queue | Process large imports in async frontend chunks with live progress. |
+| Results table | Search, filter, inspect confidence, next steps, reasons, and errors. |
+| Insights | Track provider state, dataset state, export readiness, and category mix. |
+| Classification editor | Manage category IDs, keys, colors, descriptions, examples, and next steps. |
+| Provider settings | Configure Ollama or VLLM, test URL reachability, detect models, and save selection. |
+| Server access | Configure bind IP and port for the next restart. |
+
+## Modern UI System
+
+The frontend is static HTML, CSS, and JavaScript served by Node. There is no build step.
+
+| Token role | Current direction |
+| --- | --- |
+| Primary | Cobalt blue for primary actions, active states, focus rings, and batch activity. |
+| Secondary | Cyan/teal for AI and data-system accents. |
+| Tertiary | Amber/orange for inquiry and hardship routing. |
+| Success | Green for completed processing and payment-oriented actions. |
+| Risk | Red only for legal risk, opt-out, failed batches, and destructive controls. |
+| Neutral | Cool slate surfaces with crisp borders and responsive density. |
+
+The UI supports:
+
+- Light and dark themes.
+- Compact table density.
+- Modern panel and table styling.
+- Drag-and-drop CSV affordance.
+- Toast feedback for imports, saves, errors, and classification completion.
+- Responsive collapse for narrow screens.
 
 ## Default Classification Logic
 
@@ -34,7 +56,7 @@ The system is designed for operational routing, not free-form chatbot replies. T
 | `9` | Compliance Opt-Out | Debtor sends STOP, unsubscribe, remove me, or another opt-out command. |
 | `10` | Generic / Ignore | Low-value, unclear, neutral, or gibberish replies. |
 
-These defaults are stored in code and can be reset from the UI. Runtime edits are saved locally under `data/categories.json`.
+Defaults are defined in `src/categories.js`. Saved runtime edits are stored in `data/categories.json`.
 
 ## Architecture
 
@@ -58,95 +80,95 @@ AI provider adapter
   +-- VLLM OpenAI-compatible API
 ```
 
-The app intentionally keeps the frontend static and the backend small. There is no build step. Node.js serves the HTML, CSS, JavaScript, and JSON API from the same process.
+## Runtime Flow
+
+1. A user imports a CSV or enters a single reply.
+2. The app preserves sent-message context when available.
+3. High-confidence heuristics classify obvious replies locally.
+4. Ambiguous replies are sent to the active AI provider.
+5. The model returns one configured category ID.
+6. The app maps that ID to label, color, next step, confidence, reason, and export fields.
+7. Results update live and can be exported as CSV or JSON.
+
+## Provider Behavior
+
+### Ollama
+
+| API | Purpose |
+| --- | --- |
+| `/api/version` | Reachability check. |
+| `/api/tags` | Installed model discovery. |
+| `/api/chat` | Classification request. |
+
+Default URL: `http://localhost:11434`
+
+### VLLM
+
+| API | Purpose |
+| --- | --- |
+| `/health` | Primary reachability check. |
+| `/v1/models` | Fallback reachability and model discovery. |
+| `/v1/chat/completions` | OpenAI-compatible classification request. |
+
+Default URL: `http://localhost:8000`
+
+VLLM supports an optional bearer token when the server is API-key protected.
+
+## Prompting Strategy
+
+The classifier prompt is deliberately narrow:
+
+- Input: sent SMS, reply SMS, and configured categories.
+- Output: one valid configured category ID.
+- Business mapping: handled by application code, not the model.
+
+This reduces hallucination risk and keeps operational labels, actions, colors, and exports under local configuration.
+
+## Batch Processing
+
+The frontend splits imports into chunks and sends multiple batch requests with limited concurrency. Each completed batch updates the table immediately.
+
+The backend also limits concurrent model-backed rows. Rule-based rows complete without model calls, which improves throughput and reduces local GPU pressure.
 
 ## Project Structure
 
 ```text
 public/
-  index.html       Browser UI
-  app.js           CSV import, provider config, batching, export, UI state
-  styles.css       Enterprise-style visual design and responsive layout
+  index.html       App shell and UI structure
+  app.js           Client state, import, filters, batching, export, UI feedback
+  styles.css       Modern responsive visual system
+  favicon.svg      App icon
 
 src/
-  server.js        HTTP server, API routes, static file serving
-  classifier.js    Prompt construction, result parsing, category selection
-  heuristics.js    Deterministic high-confidence business rules
-  batch.js         Batch classification with provider concurrency
-  categories.js    Default and saved classification config
-  aiSettings.js    Shared Ollama/VLLM provider settings
+  server.js        HTTP server, API routes, static serving
+  classifier.js    Prompt construction, result parsing, category mapping
+  heuristics.js    Deterministic high-confidence rules
+  batch.js         Server-side batch classification
+  categories.js    Defaults, validation, persistence
+  aiSettings.js    Provider config and inspection
   ollamaClient.js  Ollama API client
   ollamaSettings.js
-  vllmClient.js    VLLM OpenAI-compatible API client
+  vllmClient.js    VLLM OpenAI-compatible client
   serverSettings.js
-  cli.js           Command-line classification helper
+  cli.js           Command-line classification
 
 test/
   classifier.test.js
 
 data/
-  Runtime settings only. This folder is intentionally ignored by Git.
+  Runtime JSON settings
 ```
-
-## AI Provider Behavior
-
-### Ollama
-
-Default local URL:
-
-```text
-http://localhost:11434
-```
-
-The app checks:
-
-- `/api/version` for reachability.
-- `/api/tags` for installed models.
-- `/api/chat` for classification.
-
-### VLLM
-
-Default local URL:
-
-```text
-http://localhost:8000
-```
-
-The app checks:
-
-- `/health` for reachability, with `/v1/models` as fallback.
-- `/v1/models` for available models.
-- `/v1/chat/completions` for classification.
-
-An optional bearer token can be supplied for VLLM deployments protected by an API key.
-
-## Prompting Strategy
-
-The prompt is deliberately narrow:
-
-- It receives the sent SMS and the reply SMS.
-- It receives the configured classification IDs and descriptions.
-- It is instructed to return only one valid classification ID.
-- The application maps that ID back to the saved category, label, color, and next step.
-
-This reduces hallucination and keeps business output controlled by configuration rather than by model-generated prose.
-
-## Batch Processing
-
-The frontend splits imported rows into chunks and sends multiple batch requests asynchronously. As each batch completes, the table updates immediately. This lets users see progress on large files instead of waiting for the entire import to finish.
-
-The backend also limits concurrent model-backed rows to prevent overload. Obvious rule-based replies do not call the model.
 
 ## Runtime Configuration
 
-Runtime configuration is saved under `data/` and is ignored by Git because it can contain environment-specific values:
+| File | Purpose |
+| --- | --- |
+| `data/categories.json` | Saved classification categories. |
+| `data/ai.json` | Active AI provider and provider-specific settings. |
+| `data/ollama.json` | Legacy Ollama settings support. |
+| `data/server.json` | Saved host and port for next restart. |
 
-- `data/categories.json`
-- `data/ai.json`
-- `data/ollama.json`
-- `data/server.json`
-
-Environment variables can override saved values:
+Environment variables can override startup defaults:
 
 ```powershell
 $env:HOST = "127.0.0.1"
@@ -161,35 +183,9 @@ $env:OLLAMA_CLASSIFY_CONCURRENCY = "4"
 npm start
 ```
 
-## Running Locally
+## Windows Server Deployment
 
-Requirements:
-
-- Node.js 20 or newer.
-- Ollama or VLLM reachable from the server.
-
-Start the app:
-
-```powershell
-cd "C:\SMS Classification"
-npm start
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-Run tests:
-
-```powershell
-npm test
-```
-
-## Windows Server And IIS Deployment
-
-The recommended production shape is IIS as the public web server and Node.js as a private backend process.
+Recommended production topology:
 
 ```text
 User browser
@@ -208,17 +204,17 @@ Ollama or VLLM
 Recommended IIS role:
 
 - Terminate HTTPS.
-- Serve the public domain.
-- Reverse proxy requests to `http://127.0.0.1:3000`.
-- Add Windows Authentication or network restrictions if the app is staff-only.
+- Serve the staff-facing hostname.
+- Reverse proxy to `http://127.0.0.1:3000`.
+- Add Windows Authentication, VPN, IP allowlists, or another access-control layer.
 
 Recommended Node role:
 
 - Bind to `127.0.0.1`.
-- Run as a Windows Service using NSSM, Task Scheduler, or another service manager.
-- Keep Ollama or VLLM private to the server or internal network.
+- Run as a Windows Service with NSSM, Task Scheduler, or a service manager.
+- Keep Ollama or VLLM private to the machine or internal network.
 
-Example service command with NSSM:
+Example NSSM setup:
 
 ```powershell
 nssm install SMSClassification "C:\Program Files\nodejs\node.exe" "src/server.js"
@@ -230,27 +226,29 @@ nssm start SMSClassification
 ## Security Notes
 
 - Do not expose Ollama or VLLM directly to the internet.
-- Put IIS, VPN, or another access control layer in front of this app for production.
 - Treat imported SMS files as sensitive operational data.
-- Keep `data/*.json` out of Git because provider URLs, API keys, and local routing details can be stored there.
-- Use HTTPS when users access the app over a network.
+- Use HTTPS for network access.
+- Put IIS, VPN, Windows Authentication, or another control layer in front of production use.
+- Avoid committing real provider URLs, API keys, or operational data.
 
-## Operational Notes
+## Validation Coverage
 
-- Use the UI to test the AI provider URL before saving it.
-- If models are not detected, verify the provider process is running and reachable from the Node server.
-- For Ollama throughput, tune `OLLAMA_NUM_PARALLEL`, `OLLAMA_MAX_QUEUE`, and `OLLAMA_CLASSIFY_CONCURRENCY` together.
-- For large imports, start with conservative concurrency and increase while watching VRAM, CPU, and provider latency.
-
-## Current Validation
-
-The automated test suite covers:
+The test suite covers:
 
 - Rule-based classification.
 - AI-backed classification parsing.
 - Configurable category IDs.
-- Large CSV-sized batch handling.
+- Label and object output mapping.
+- Empty replies.
+- Batch classification and row-level errors.
+- Large CSV-sized batches.
 - Batch concurrency.
 - Ollama settings normalization.
-- VLLM client behavior.
+- VLLM provider behavior.
 - Server bind IP and port validation.
+
+Run:
+
+```powershell
+npm test
+```
