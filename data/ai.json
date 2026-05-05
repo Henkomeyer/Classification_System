@@ -2,7 +2,7 @@
   "provider": "ollama",
   "providers": {
     "ollama": {
-      "host": "http://192.168.100.203:11434",
+      "host": "http://<ip>:11434",
       "model": "gpt-oss:20b",
       "keepAlive": "30m"
     },
