@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SMS Classification</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <aside class="sidebar" aria-label="Classification controls">
+          <div class="brand">
+            <div class="brand-mark" aria-hidden="true">AI</div>
+            <div>
+              <h1>SignalOps AI</h1>
+              <p>SMS routing console</p>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <span class="section-kicker">AI Connection</span>
+          </div>
+
+          <div class="panel control-panel connection-panel">
+            <div class="panel-heading">
+              <h2>AI Provider</h2>
+              <span class="connection-badge checking" id="ollamaConnectionBadge">Checking</span>
+            </div>
+            <div class="provider-switch" id="providerSwitch" aria-label="AI provider">
+              <button class="provider-tab active" data-provider="ollama" type="button">
+                <strong>Ollama</strong>
+                <span>Local runner</span>
+              </button>
+              <button class="provider-tab" data-provider="vllm" type="button">
+                <strong>VLLM</strong>
+                <span>OpenAI API</span>
+              </button>
+            </div>
+            <div class="provider-hint" id="providerHint">Use Ollama at http://localhost:11434 or switch to VLLM at http://localhost:8000.</div>
+            <label class="field-label" for="ollamaHost">Provider URL</label>
+            <div class="inline-field">
+              <input class="text-input" id="ollamaHost" type="url" placeholder="http://localhost:11434" autocomplete="off">
+              <button class="mini-action" id="detectOllama" type="button">Test URL</button>
+            </div>
+            <label class="field-label provider-secret hidden" for="vllmApiKey" id="vllmApiKeyLabel">VLLM API key</label>
+            <input class="text-input provider-secret hidden" id="vllmApiKey" type="password" placeholder="Optional bearer token" autocomplete="off">
+            <label class="field-label" for="ollamaModel">Installed model</label>
+            <select id="ollamaModel" disabled>
+              <option value="">Connect to load models</option>
+            </select>
+            <button class="secondary-action compact-action" id="saveOllama" type="button" disabled>Use Selected Provider</button>
+            <div class="connection-meta" id="ollamaModelMeta">
+              <span>0 models detected</span>
+            </div>
+            <div class="result-card empty" id="ollamaStatus">Checking Ollama connection...</div>
+          </div>
+
+          <div class="panel control-panel server-panel">
+            <div class="panel-heading">
+              <h2>Server Access</h2>
+              <span class="connection-badge checking" id="serverConnectionBadge">Active</span>
+            </div>
+            <div class="server-grid">
+              <div>
+                <label class="field-label" for="serverHost">Bind IP</label>
+                <input class="text-input" id="serverHost" placeholder="0.0.0.0" autocomplete="off">
+              </div>
+              <div>
+                <label class="field-label" for="serverPort">Port</label>
+                <input class="text-input" id="serverPort" type="number" min="1" max="65535" step="1" placeholder="3000">
+              </div>
+            </div>
+            <button class="secondary-action compact-action" id="saveServerConfig" type="button">Save For Restart</button>
+            <div class="connection-meta" id="serverMeta">
+              <span>Loading server settings</span>
+            </div>
+            <div class="result-card empty" id="serverStatus">IP and port changes apply after restarting the app.</div>
+          </div>
+
+          <div class="sidebar-section">
+            <span class="section-kicker">Classify</span>
+          </div>
+
+          <div class="panel control-panel">
+            <div class="panel-heading">
+              <h2>Single Reply</h2>
+            </div>
+            <label class="field-label" for="singleSentSms">Sent SMS</label>
+            <textarea id="singleSentSms" rows="4" placeholder="Hi, can we help you with your account?"></textarea>
+            <label class="field-label" for="singleSms">SMS reply</label>
+            <textarea id="singleSms" rows="6" placeholder="Please call me back tomorrow"></textarea>
+            <button class="primary-action" id="classifySingle" type="button">
+              <span aria-hidden="true">-&gt;</span>
+              Classify Reply
+            </button>
+            <div class="result-card empty" id="singleResult">No reply classified yet.</div>
+          </div>
+
+          <div class="panel control-panel">
+            <div class="panel-heading">
+              <h2>CSV Import</h2>
+            </div>
+            <label class="file-drop" for="csvFile">
+              <input id="csvFile" type="file" accept=".csv,text/csv">
+              <span class="file-icon" aria-hidden="true">^</span>
+              <span>
+                <strong>Choose CSV file</strong>
+                <small id="fileName">No file selected</small>
+              </span>
+            </label>
+            <label class="field-label" for="sentColumn">Sent SMS column</label>
+            <select id="sentColumn" disabled>
+              <option value="">Import a CSV first</option>
+            </select>
+            <label class="field-label" for="replyColumn">Reply SMS column</label>
+            <select id="replyColumn" disabled>
+              <option value="">Import a CSV first</option>
+            </select>
+            <button class="secondary-action" id="classifyCsv" type="button" disabled>
+              <span aria-hidden="true">OK</span>
+              Classify Imported SMS
+            </button>
+          </div>
+
+          <div class="sidebar-section">
+            <span class="section-kicker">Model Routing</span>
+          </div>
+
+          <div class="panel control-panel">
+            <div class="panel-heading">
+              <h2>Classifications</h2>
+              <button class="mini-action" id="addCategory" type="button">Add</button>
+            </div>
+            <div class="category-editor" id="categoryEditor"></div>
+            <div class="category-actions">
+              <button class="secondary-action" id="saveCategories" type="button">Save Classifications</button>
+              <button class="ghost-action" id="resetCategories" type="button">Reset Defaults</button>
+            </div>
+            <div class="result-card empty" id="categoryStatus">Loading classifications...</div>
+          </div>
+        </aside>
+
+        <section class="content">
+          <nav class="topbar" aria-label="Application status">
+            <div class="topbar-left">
+              <span class="system-dot checking" id="systemDot" aria-hidden="true"></span>
+              <span id="connectionStatusText">Checking AI provider</span>
+            </div>
+            <div class="topbar-right">
+              <span class="topbar-pill">Local AI</span>
+              <span class="topbar-pill">Configurable IDs</span>
+            </div>
+          </nav>
+
+          <header class="content-header">
+            <div>
+              <p class="eyebrow">Live Routing Console</p>
+              <h2>SMS Reply Intelligence</h2>
+              <p class="header-copy">Import, classify, and export operational routing decisions with configurable class IDs.</p>
+            </div>
+            <div class="header-actions">
+              <button class="ghost-action" id="loadSample" type="button">Load Sample</button>
+              <button class="ghost-action" id="downloadResults" type="button" disabled>Export CSV</button>
+              <button class="ghost-action" id="downloadJsonResults" type="button" disabled>Export JSON</button>
+            </div>
+          </header>
+
+          <section class="stats-grid" aria-label="Classification summary">
+            <article class="stat">
+              <span>Total</span>
+              <strong id="statTotal">0</strong>
+            </article>
+            <article class="stat">
+              <span>Call Mgmt</span>
+              <strong id="statCallback">0</strong>
+            </article>
+            <article class="stat">
+              <span>Payments</span>
+              <strong id="statOptOut">0</strong>
+            </article>
+            <article class="stat">
+              <span>Needs review</span>
+              <strong id="statReview">0</strong>
+            </article>
+          </section>
+
+          <section class="batch-progress-panel" id="batchProgressPanel" aria-label="Batch processing progress">
+            <div class="progress-orb" aria-hidden="true">
+              <div class="orb-ring"></div>
+              <div class="orb-core">
+                <strong id="batchPercent">0%</strong>
+                <span>processed</span>
+              </div>
+            </div>
+            <div class="batch-progress-copy">
+              <div class="batch-progress-head">
+                <div>
+                  <p class="eyebrow">Async Batch Queue</p>
+                  <h3 id="batchProgressTitle">Waiting for import</h3>
+                </div>
+                <div class="batch-metrics">
+                  <span id="batchActiveCount">0 active</span>
+                  <span id="batchDoneCount">0 done</span>
+                </div>
+              </div>
+              <div class="batch-lane" id="batchLane"></div>
+            </div>
+          </section>
+
+          <section class="table-shell">
+            <div class="table-toolbar">
+              <div>
+                <h3>Imported Replies</h3>
+                <p id="tableStatus">Import a CSV or load sample data to begin.</p>
+              </div>
+              <div class="toolbar-live">
+                <div class="status-pill" id="jobStatus">Idle</div>
+                <div class="progress-track" aria-hidden="true">
+                  <span id="jobProgress"></span>
+                </div>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Sent SMS</th>
+                    <th>SMS Reply</th>
+                    <th>ID</th>
+                    <th>Category</th>
+                    <th>Confidence</th>
+                    <th>Next Step</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody id="resultsBody">
+                  <tr>
+                    <td colspan="8" class="empty-table">No SMS replies loaded.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

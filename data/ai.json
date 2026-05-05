@@ -1,0 +1,15 @@
+{
+  "provider": "ollama",
+  "providers": {
+    "ollama": {
+      "host": "http://192.168.100.203:11434",
+      "model": "gpt-oss:20b",
+      "keepAlive": "30m"
+    },
+    "vllm": {
+      "host": "http://localhost:8000",
+      "model": "",
+      "apiKey": ""
+    }
+  }
+}

@@ -1,0 +1,2 @@
+SMS classifier listening on http://localhost:3000
+Preloaded Ollama model llama3.1:8b.

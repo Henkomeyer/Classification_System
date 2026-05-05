@@ -1,0 +1,15 @@
+{
+  "name": "sms-classification",
+  "version": "1.0.0",
+  "description": "Ollama-backed SMS reply classifier with next-step categories.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "classify": "node src/cli.js",
+    "test": "node test/classifier.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
