@@ -3,141 +3,143 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>SMS Classification</title>
+    <title>SMS Reply Classification Console</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
     <main class="app-shell">
       <section class="workspace">
-        <aside class="sidebar" aria-label="Classification controls">
+        <aside class="sidebar" aria-label="SMS classification controls">
           <div class="brand">
             <div class="brand-mark" aria-hidden="true">AI</div>
             <div>
               <h1>SignalOps AI</h1>
-              <p>SMS routing console</p>
+              <p>Operator routing console</p>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <span class="section-kicker">AI Connection</span>
+            <span class="section-kicker">AI setup</span>
           </div>
 
           <div class="panel control-panel connection-panel">
             <div class="panel-heading">
-              <h2>AI Provider</h2>
+              <h2>AI provider</h2>
               <span class="connection-badge checking" id="ollamaConnectionBadge">Checking</span>
             </div>
             <div class="provider-switch" id="providerSwitch" aria-label="AI provider">
-              <button class="provider-tab active" data-provider="ollama" type="button">
+              <button class="provider-tab active" data-provider="ollama" type="button" title="Use a local Ollama model">
                 <strong>Ollama</strong>
-                <span>Local runner</span>
+                <span>Local AI on this machine</span>
               </button>
-              <button class="provider-tab" data-provider="vllm" type="button">
+              <button class="provider-tab" data-provider="vllm" type="button" title="Use a VLLM OpenAI-compatible endpoint">
                 <strong>VLLM</strong>
-                <span>OpenAI API</span>
+                <span>Team AI endpoint</span>
               </button>
             </div>
-            <div class="provider-hint" id="providerHint">Use Ollama at http://localhost:11434 or switch to VLLM at http://localhost:8000.</div>
-            <label class="field-label" for="ollamaHost">Provider URL</label>
+            <div class="provider-hint" id="providerHint">Enter the AI service address, then test it before selecting a model.</div>
+            <label class="field-label" for="ollamaHost">AI service URL</label>
             <div class="inline-field">
-              <input class="text-input" id="ollamaHost" type="url" placeholder="http://localhost:11434" autocomplete="off">
-              <button class="mini-action" id="detectOllama" type="button">Test URL</button>
+              <input class="text-input" id="ollamaHost" type="url" placeholder="http://localhost:11434" autocomplete="off" aria-label="AI service URL">
+              <button class="mini-action" id="detectOllama" type="button" title="Check whether the AI service is reachable">Check connection</button>
             </div>
             <label class="field-label provider-secret hidden" for="vllmApiKey" id="vllmApiKeyLabel">VLLM API key</label>
-            <input class="text-input provider-secret hidden" id="vllmApiKey" type="password" placeholder="Optional bearer token" autocomplete="off">
-            <label class="field-label" for="ollamaModel">Installed model</label>
-            <select id="ollamaModel" disabled>
-              <option value="">Connect to load models</option>
+            <input class="text-input provider-secret hidden" id="vllmApiKey" type="password" placeholder="Paste token if required" autocomplete="off" aria-label="VLLM API key">
+            <label class="field-label" for="ollamaModel">AI model to use</label>
+            <select id="ollamaModel" disabled aria-label="AI model to use">
+              <option value="">Check connection to show models</option>
             </select>
-            <button class="secondary-action compact-action" id="saveOllama" type="button" disabled>Use Selected Provider</button>
+            <button class="secondary-action compact-action" id="saveOllama" type="button" disabled title="Save this provider and model for classifications">Use this AI provider</button>
             <div class="connection-meta" id="ollamaModelMeta">
-              <span>0 models detected</span>
+              <span>No models found yet</span>
             </div>
-            <div class="result-card empty" id="ollamaStatus">Checking Ollama connection...</div>
+            <div class="result-card empty" id="ollamaStatus">Checking AI connection...</div>
           </div>
 
           <div class="panel control-panel server-panel">
             <div class="panel-heading">
-              <h2>Server Access</h2>
+              <h2>Console address</h2>
               <span class="connection-badge checking" id="serverConnectionBadge">Active</span>
             </div>
             <div class="server-grid">
               <div>
-                <label class="field-label" for="serverHost">Bind IP</label>
-                <input class="text-input" id="serverHost" placeholder="0.0.0.0" autocomplete="off">
+                <label class="field-label" for="serverHost">IP address</label>
+                <input class="text-input" id="serverHost" placeholder="0.0.0.0" autocomplete="off" aria-label="Console IP address">
               </div>
               <div>
                 <label class="field-label" for="serverPort">Port</label>
-                <input class="text-input" id="serverPort" type="number" min="1" max="65535" step="1" placeholder="3000">
+                <input class="text-input" id="serverPort" type="number" min="1" max="65535" step="1" placeholder="3000" aria-label="Console port">
               </div>
             </div>
-            <button class="secondary-action compact-action" id="saveServerConfig" type="button">Save For Restart</button>
+            <button class="secondary-action compact-action" id="saveServerConfig" type="button" title="Save this address for the next app restart">Save address for restart</button>
             <div class="connection-meta" id="serverMeta">
-              <span>Loading server settings</span>
+              <span>Loading console address</span>
             </div>
-            <div class="result-card empty" id="serverStatus">IP and port changes apply after restarting the app.</div>
+            <div class="result-card empty" id="serverStatus">Changes to the IP address or port take effect after restarting the app.</div>
           </div>
 
           <div class="sidebar-section">
-            <span class="section-kicker">Classify</span>
+            <span class="section-kicker">Classify replies</span>
           </div>
 
           <div class="panel control-panel">
             <div class="panel-heading">
-              <h2>Single Reply</h2>
+              <h2>One SMS reply</h2>
             </div>
-            <label class="field-label" for="singleSentSms">Sent SMS</label>
-            <textarea id="singleSentSms" rows="4" placeholder="Hi, can we help you with your account?"></textarea>
-            <label class="field-label" for="singleSms">SMS reply</label>
-            <textarea id="singleSms" rows="6" placeholder="Please call me back tomorrow"></textarea>
-            <button class="primary-action" id="classifySingle" type="button">
-              <span aria-hidden="true">-&gt;</span>
-              Classify Reply
+            <label class="field-label" for="singleSentSms">Message we sent</label>
+            <textarea id="singleSentSms" rows="4" placeholder="Example: Hi, can we help you with your account?" aria-label="Message we sent"></textarea>
+            <label class="field-label" for="singleSms">Customer reply</label>
+            <textarea id="singleSms" rows="6" placeholder="Example: Please call me back tomorrow" aria-label="Customer SMS reply"></textarea>
+            <button class="primary-action" id="classifySingle" type="button" title="Classify this customer reply">
+              <span aria-hidden="true">↗</span>
+              Classify this reply
             </button>
-            <div class="result-card empty" id="singleResult">No reply classified yet.</div>
+            <div class="result-card empty" id="singleResult">Enter a customer reply to see its category, confidence, and next step.</div>
           </div>
 
           <div class="panel control-panel">
             <div class="panel-heading">
-              <h2>CSV Import</h2>
+              <h2>CSV batch import</h2>
             </div>
             <label class="file-drop" for="csvFile">
-              <input id="csvFile" type="file" accept=".csv,text/csv">
-              <span class="file-icon" aria-hidden="true">^</span>
+              <input id="csvFile" type="file" accept=".csv,text/csv" aria-label="Choose CSV file with SMS replies">
+              <span class="file-icon" aria-hidden="true">⇧</span>
               <span>
-                <strong>Choose CSV file</strong>
+                <strong>Select CSV file</strong>
                 <small id="fileName">No file selected</small>
               </span>
             </label>
-            <label class="field-label" for="sentColumn">Sent SMS column</label>
-            <select id="sentColumn" disabled>
-              <option value="">Import a CSV first</option>
+            <label class="field-label" for="sentColumn">Column with messages we sent</label>
+            <select id="sentColumn" disabled aria-label="Column with messages we sent">
+              <option value="">Select a CSV file first</option>
             </select>
-            <label class="field-label" for="replyColumn">Reply SMS column</label>
-            <select id="replyColumn" disabled>
-              <option value="">Import a CSV first</option>
+            <label class="field-label" for="replyColumn">Column with customer replies</label>
+            <select id="replyColumn" disabled aria-label="Column with customer replies">
+              <option value="">Select a CSV file first</option>
             </select>
-            <button class="secondary-action" id="classifyCsv" type="button" disabled>
-              <span aria-hidden="true">OK</span>
-              Classify Imported SMS
+            <button class="secondary-action" id="classifyCsv" type="button" disabled title="Classify every reply in the selected CSV">
+              <span aria-hidden="true">✓</span>
+              Classify selected rows
             </button>
           </div>
 
           <div class="sidebar-section">
-            <span class="section-kicker">Model Routing</span>
+            <span class="section-kicker">Routing categories</span>
           </div>
 
           <div class="panel control-panel">
             <div class="panel-heading">
-              <h2>Classifications</h2>
-              <button class="mini-action" id="addCategory" type="button">Add</button>
+              <h2>Category rules</h2>
+              <button class="mini-action" id="addCategory" type="button" title="Add a new routing category" aria-label="Add category">Add category</button>
             </div>
-            <div class="category-editor" id="categoryEditor"></div>
+            <div class="category-editor" id="categoryEditor" aria-label="Editable routing categories"></div>
             <div class="category-actions">
-              <button class="secondary-action" id="saveCategories" type="button">Save Classifications</button>
-              <button class="ghost-action" id="resetCategories" type="button">Reset Defaults</button>
+              <button class="secondary-action" id="saveCategories" type="button" title="Save category names, IDs, and instructions">Save category rules</button>
+              <button class="ghost-action" id="resetCategories" type="button" title="Restore the original category rules">Restore defaults</button>
             </div>
-            <div class="result-card empty" id="categoryStatus">Loading classifications...</div>
+            <div class="result-card empty" id="categoryStatus">Loading category rules...</div>
           </div>
         </aside>
 
@@ -145,34 +147,36 @@
           <nav class="topbar" aria-label="Application status">
             <div class="topbar-left">
               <span class="system-dot checking" id="systemDot" aria-hidden="true"></span>
-              <span id="connectionStatusText">Checking AI provider</span>
+              <span id="connectionStatusText">Checking AI provider status</span>
             </div>
             <div class="topbar-right">
               <span class="topbar-pill">Local AI</span>
-              <span class="topbar-pill">Configurable IDs</span>
+              <span class="topbar-pill">Editable category IDs</span>
+              <button class="icon-action" id="densityToggle" type="button" aria-pressed="false" title="Toggle dense table">☰</button>
+              <button class="icon-action" id="themeToggle" type="button" aria-pressed="false" title="Toggle theme">◐</button>
             </div>
           </nav>
 
           <header class="content-header">
             <div>
-              <p class="eyebrow">Live Routing Console</p>
-              <h2>SMS Reply Intelligence</h2>
-              <p class="header-copy">Import, classify, and export operational routing decisions with configurable class IDs.</p>
+              <p class="eyebrow">Live routing console</p>
+              <h2>SMS reply review</h2>
+              <p class="header-copy">Classify customer replies, review the suggested next step, and export the results for operations.</p>
             </div>
             <div class="header-actions">
-              <button class="ghost-action" id="loadSample" type="button">Load Sample</button>
-              <button class="ghost-action" id="downloadResults" type="button" disabled>Export CSV</button>
-              <button class="ghost-action" id="downloadJsonResults" type="button" disabled>Export JSON</button>
+              <button class="ghost-action" id="loadSample" type="button" title="Load example rows for a quick test">Load sample rows</button>
+              <button class="ghost-action" id="downloadResults" type="button" disabled title="Download classified rows as a CSV file">Download CSV</button>
+              <button class="ghost-action" id="downloadJsonResults" type="button" disabled title="Download classified rows as a JSON file">Download JSON</button>
             </div>
           </header>
 
-          <section class="stats-grid" aria-label="Classification summary">
+          <section class="stats-grid" aria-label="Classification totals">
             <article class="stat">
-              <span>Total</span>
+              <span>Total replies</span>
               <strong id="statTotal">0</strong>
             </article>
             <article class="stat">
-              <span>Call Mgmt</span>
+              <span>Call requests</span>
               <strong id="statCallback">0</strong>
             </article>
             <article class="stat">
@@ -183,6 +187,34 @@
               <span>Needs review</span>
               <strong id="statReview">0</strong>
             </article>
+          </section>
+
+          <section class="insight-grid" aria-label="Operational insights">
+            <article class="insight-card">
+              <span>Provider</span>
+              <strong id="insightProvider">Checking</strong>
+              <p id="insightProviderMeta">Waiting for the AI provider to respond.</p>
+            </article>
+            <article class="insight-card">
+              <span>Dataset</span>
+              <strong id="insightDataset">No file</strong>
+              <p id="insightDatasetMeta">Select a CSV file or load sample rows to start.</p>
+            </article>
+            <article class="insight-card">
+              <span>Export</span>
+              <strong id="insightExport">Locked</strong>
+              <p id="insightExportMeta">Exports unlock after at least one row is classified.</p>
+            </article>
+          </section>
+
+          <section class="mix-panel" aria-label="Classification mix">
+            <div>
+              <p class="eyebrow">Classification mix</p>
+              <h3>Current routing breakdown</h3>
+            </div>
+            <div class="mix-bars" id="categoryMix">
+              <div class="mix-empty">Classified replies will appear here as a routing breakdown.</div>
+            </div>
           </section>
 
           <section class="batch-progress-panel" id="batchProgressPanel" aria-label="Batch processing progress">
@@ -196,8 +228,8 @@
             <div class="batch-progress-copy">
               <div class="batch-progress-head">
                 <div>
-                  <p class="eyebrow">Async Batch Queue</p>
-                  <h3 id="batchProgressTitle">Waiting for import</h3>
+                  <p class="eyebrow">Batch queue</p>
+                  <h3 id="batchProgressTitle">Waiting for CSV rows</h3>
                 </div>
                 <div class="batch-metrics">
                   <span id="batchActiveCount">0 active</span>
@@ -211,8 +243,15 @@
           <section class="table-shell">
             <div class="table-toolbar">
               <div>
-                <h3>Imported Replies</h3>
-                <p id="tableStatus">Import a CSV or load sample data to begin.</p>
+                <h3>Reply results</h3>
+                <p id="tableStatus">Select a CSV file or load sample rows to begin.</p>
+              </div>
+              <div class="table-filters" aria-label="Table filters">
+                <input class="text-input" id="tableSearch" type="search" placeholder="Search replies, categories, or reasons" aria-label="Search replies, categories, or reasons">
+                <select id="categoryFilter" aria-label="Show only one category">
+                  <option value="">All categories</option>
+                </select>
+                <button class="mini-action" id="clearFilters" type="button" title="Clear search and category filters">Clear filters</button>
               </div>
               <div class="toolbar-live">
                 <div class="status-pill" id="jobStatus">Idle</div>
@@ -226,9 +265,9 @@
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Sent SMS</th>
-                    <th>SMS Reply</th>
-                    <th>ID</th>
+                    <th>Message sent</th>
+                    <th>Customer reply</th>
+                    <th>Category ID</th>
                     <th>Category</th>
                     <th>Confidence</th>
                     <th>Next Step</th>
@@ -237,7 +276,7 @@
                 </thead>
                 <tbody id="resultsBody">
                   <tr>
-                    <td colspan="8" class="empty-table">No SMS replies loaded.</td>
+                    <td colspan="8" class="empty-table">No replies loaded yet. Select a CSV file or load sample rows to begin.</td>
                   </tr>
                 </tbody>
               </table>

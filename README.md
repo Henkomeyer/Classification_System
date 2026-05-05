@@ -1,91 +1,84 @@
-# SMS Classification
+# SignalOps AI SMS Classification
 
-Classifies inbound debt-collection SMS replies into an operational triage category and returns the next step to take. The classifier uses deterministic rules for obvious high-confidence replies and a selected AI provider for ambiguous replies. Ollama and VLLM are supported. The model prompt is intentionally narrow: it asks for a single configured category ID, then the app attaches labels and next steps from configuration.
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-16a34a?style=for-the-badge&logo=node.js&logoColor=white)
+![Frontend](https://img.shields.io/badge/Frontend-Static%20HTML%2FCSS%2FJS-2563eb?style=for-the-badge)
+![AI Providers](https://img.shields.io/badge/AI-Ollama%20%7C%20VLLM-8b5cf6?style=for-the-badge)
+![Tests](https://img.shields.io/badge/Tests-node%20test-f59e0b?style=for-the-badge)
 
-For a fuller architecture, deployment, and operations guide, see [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).
+Local AI-assisted triage for inbound debt-collection SMS replies. The app imports replies from CSV, classifies each reply into a configured operational action ID, and exports routing-ready results for downstream teams.
 
-## Classifications
+> The model only selects a configured classification ID. Labels, next steps, colors, and export shape stay controlled by the application.
 
-Classifications are configurable in the frontend. Each classification has:
+## Highlights
 
-- `code`: the ID returned in results, such as `1`, `2`, `3`, or any value you choose.
-- `id`: the internal key the model selects.
-- `label`: the display name.
-- `description`: when this classification should be selected.
-- `next_step`: what the business should do next.
-- `examples`: sample replies that belong in the classification.
+| Area | What it does |
+| --- | --- |
+| Modern operator console | Responsive UI with light/dark theme, compact table density, live insights, search, filters, and classification mix charts. |
+| Local-first AI | Supports Ollama native API and VLLM OpenAI-compatible API. |
+| Deterministic fast path | Obvious high-confidence replies are classified by rules before calling the model. |
+| Batch import | CSV import with sent-message context, async batch processing, progress tracking, and row-level errors. |
+| Configurable routing | Edit classification IDs, labels, colors, descriptions, examples, and next steps from the browser. |
+| Export workflow | Download classified results as CSV or JSON. |
 
-Saved classifications are stored in `data/categories.json`.
+## Quick Start
 
-Default debt-triage IDs:
+```powershell
+git clone https://github.com/Henkomeyer/Classification_System.git
+cd Classification_System
+npm start
+```
 
-- `1`: Call Management
-- `2`: Payment Commitment
-- `3`: Information Logistics
-- `4`: Identity Error
-- `5`: Email Pivot
-- `6`: Legal Risk & Hostility
-- `7`: General Identity Inquiry
-- `8`: Financial Hardship
-- `9`: Compliance Opt-Out
-- `10`: Generic / Ignore
+Open:
 
-## AI Provider Connection
+```text
+http://localhost:3000
+```
 
-The frontend includes an AI Provider panel. Choose Ollama or VLLM, enter the provider URL, test the connection, then select the detected model.
+Run tests:
 
-Ollama:
+```powershell
+npm test
+```
 
-- Default URL: `http://localhost:11434`
-- Reachability check: `/api/version`
-- Model list: `/api/tags`
+## AI Provider Setup
 
-VLLM:
-
-- Default URL: `http://localhost:8000`
-- Reachability check: `/health`, with `/v1/models` as fallback
-- Model list: `/v1/models`
-- Chat endpoint: `/v1/chat/completions`
-- Optional bearer token is supported when your VLLM server is started with API key protection.
-
-Saved provider settings are stored in `data/ai.json`. The legacy Ollama settings file, `data/ollama.json`, is still supported.
-
-## Requirements
-
-- Node.js 20 or newer.
-- Ollama or VLLM installed and running locally.
-- A local model available through one of those providers, for example:
+### Ollama
 
 ```powershell
 ollama pull llama3.1:8b
 ollama serve
 ```
 
-Or run a VLLM OpenAI-compatible server:
+Defaults:
+
+| Setting | Value |
+| --- | --- |
+| Provider URL | `http://localhost:11434` |
+| Reachability | `/api/version` |
+| Model list | `/api/tags` |
+| Chat endpoint | `/api/chat` |
+
+### VLLM
 
 ```powershell
 vllm serve <model-name> --host 0.0.0.0 --port 8000
 ```
 
-## Run the API
+Defaults:
 
-```powershell
-npm start
-```
+| Setting | Value |
+| --- | --- |
+| Provider URL | `http://localhost:8000` |
+| Reachability | `/health`, then `/v1/models` fallback |
+| Model list | `/v1/models` |
+| Chat endpoint | `/v1/chat/completions` |
+| Auth | Optional bearer token |
 
-The app and API start on `http://localhost:3000` by default. Open that URL to use the frontend for single replies or CSV import.
+Provider settings are stored in `data/ai.json`. Legacy Ollama settings in `data/ollama.json` are still supported.
 
-By default the server binds to `0.0.0.0`, which allows other machines on the network to reach it at `http://SERVER-IP:3000`. You can change the bind IP and port in the frontend under **Server Access**, then restart the app. The saved settings are stored in `data/server.json`.
+## CSV Format
 
-You can also set the bind IP and port with environment variables:
-
-```powershell
-$env:HOST = "0.0.0.0"
-$env:PORT = "3000"
-npm start
-```
-
-For CSV import, the preferred file structure is:
+Preferred columns:
 
 ```csv
 TX_Msg,RX_Message
@@ -93,18 +86,42 @@ TX_Msg,RX_Message
 "Reply STOP if you no longer want messages","Stop sending me messages"
 ```
 
-`TX_Msg` is the SMS that was sent. `RX_Message` is the customer's SMS reply that should be classified.
+| Column | Purpose |
+| --- | --- |
+| `TX_Msg` | SMS sent by the business. Used as context for ambiguous replies. |
+| `RX_Message` | Customer reply that should be classified. |
 
-Classify a reply:
+The UI can remap columns after import if your CSV uses different names.
+
+## Default Classifications
+
+| ID | Category | Business action |
+| --- | --- | --- |
+| `1` | Call Management | Queue a voice-contact task and preserve callback timing. |
+| `2` | Payment Commitment | Track promised or confirmed payment. |
+| `3` | Information Logistics | Send banking details, balance, statement, or reference. |
+| `4` | Identity Error | Flag for data cleansing and stop person-specific follow-up. |
+| `5` | Email Pivot | Move documents or conversation to email. |
+| `6` | Legal Risk & Hostility | Escalate for compliance or supervisor review. |
+| `7` | General Identity Inquiry | Provide verification-safe account context. |
+| `8` | Financial Hardship | Route to hardship or vulnerability workflow. |
+| `9` | Compliance Opt-Out | Record opt-out and suppress SMS where required. |
+| `10` | Generic / Ignore | Archive or leave for low-priority review. |
+
+Saved classifications live in `data/categories.json` and can be reset from the UI.
+
+## API Examples
+
+Classify one reply:
 
 ```powershell
 Invoke-RestMethod -Method Post `
   -Uri http://localhost:3000/classify `
   -ContentType 'application/json' `
-  -Body '{"sentText":"Hi, are you available to discuss your application?","text":"Please call me back tomorrow"}'
+  -Body '{"sentText":"Hi, are you available to discuss your account?","text":"Please call me back tomorrow"}'
 ```
 
-Response shape:
+Example response:
 
 ```json
 {
@@ -118,13 +135,13 @@ Response shape:
 }
 ```
 
-## Run from the CLI
+Classify from the CLI:
 
 ```powershell
 npm run classify -- "Please call me back"
 ```
 
-You can also pipe a message:
+Pipe a message:
 
 ```powershell
 "Stop sending me messages" | npm run classify
@@ -132,44 +149,63 @@ You can also pipe a message:
 
 ## Configuration
 
-Environment variables:
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | Web server bind address. |
+| `PORT` | `3000` | Web/API port. |
+| `AI_PROVIDER` | `ollama` | Active provider: `ollama` or `vllm`. |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama base URL. |
+| `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name. |
+| `VLLM_HOST` | `http://localhost:8000` | VLLM base URL. |
+| `VLLM_MODEL` | First detected model | VLLM model name. |
+| `VLLM_API_KEY` | Empty | Optional bearer token. |
+| `OLLAMA_CLASSIFY_CONCURRENCY` | `4` | Concurrent model-backed rows per server batch. |
+| `OLLAMA_KEEP_ALIVE` | `30m` | Ollama keep-alive duration. |
+| `OLLAMA_PRELOAD` | Enabled | Set to `false` to skip startup preload. |
 
-- `OLLAMA_HOST`: Ollama base URL. Defaults to `http://localhost:11434`.
-- `OLLAMA_MODEL`: Ollama model name. Defaults to `llama3.1:8b`.
-- `VLLM_HOST`: VLLM OpenAI-compatible base URL. Defaults to `http://localhost:8000`.
-- `VLLM_MODEL`: VLLM model name. Defaults to the first detected model when selected in the UI.
-- `VLLM_API_KEY`: optional bearer token for VLLM.
-- `AI_PROVIDER`: `ollama` or `vllm`. Defaults to `ollama`.
-- `HOST`: web server bind address. Defaults to `0.0.0.0` so other machines can reach it.
-- `OLLAMA_CLASSIFY_CONCURRENCY`: how many model-backed rows this app sends in parallel per server batch. Defaults to `4`.
-- `OLLAMA_KEEP_ALIVE`: how long Ollama keeps the model loaded after a request. Defaults to `30m` for this app.
-- `OLLAMA_PRELOAD`: set to `false` to skip loading the model when the server starts.
-- `PORT`: API port. Defaults to `3000`.
+Runtime settings saved from the UI override these defaults where applicable.
 
-Runtime settings saved from the UI override the defaults above for classification requests.
+## Project Layout
 
-## Ollama GPU Throughput
+```text
+public/
+  index.html       Browser UI
+  app.js           Import, provider config, batching, export, UI state
+  styles.css       Modern responsive console styling
+  favicon.svg      App icon
 
-This app can now issue multiple Ollama requests concurrently, but Ollama must also be configured to process concurrent requests. Start Ollama with settings like:
+src/
+  server.js        HTTP API and static file server
+  classifier.js    Prompt construction and result mapping
+  heuristics.js    High-confidence rule classifier
+  batch.js         Batch classification
+  categories.js    Classification config and defaults
+  aiSettings.js    Ollama/VLLM provider settings
+  ollamaClient.js  Ollama API client
+  vllmClient.js    VLLM API client
+  cli.js           CLI helper
 
-```powershell
-$env:OLLAMA_NUM_PARALLEL = "4"
-$env:OLLAMA_MAX_QUEUE = "1024"
-$env:OLLAMA_KEEP_ALIVE = "30m"
-ollama serve
+test/
+  classifier.test.js
+
+data/
+  Runtime configuration JSON files
 ```
 
-Then start the app with matching concurrency:
+## Windows Server Notes
 
-```powershell
-$env:OLLAMA_CLASSIFY_CONCURRENCY = "4"
-npm start
+Recommended production shape:
+
+```text
+User browser
+  -> IIS on 80/443
+  -> reverse proxy
+  -> Node app on 127.0.0.1:3000
+  -> Ollama or VLLM
 ```
 
-Increase both values gradually while watching VRAM and GPU utilization. Higher parallelism uses more memory because Ollama allocates context per parallel request.
+Use IIS, VPN, or another access-control layer for staff-only deployments. Do not expose Ollama or VLLM directly to the internet.
 
-## Tests
+## More Detail
 
-```powershell
-npm test
-```
+See [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) for architecture, runtime behavior, deployment guidance, and validation coverage.

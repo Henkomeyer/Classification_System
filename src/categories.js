@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url";
 const rootDirectory = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const dataDirectory = path.join(rootDirectory, "data");
 const categoriesPath = path.join(dataDirectory, "categories.json");
-const fallbackColors = ["#ef3f49", "#687f91", "#2f8b62", "#bd7632", "#7a5cff", "#2196a3"];
+const fallbackColors = ["#2563eb", "#06b6d4", "#16a34a", "#8b5cf6", "#f59e0b", "#ef4444"];
 
 export const defaultCategories = [
   {
     id: "call_management",
     code: "1",
-    color: "#ef3f49",
+    color: "#2563eb",
     label: "Call Management",
     next_step: "Queue a voice-contact task and preserve any requested callback time.",
     description: "The debtor is busy, asks for a call, asks you to call later, or says they will call you.",
@@ -20,7 +20,7 @@ export const defaultCategories = [
   {
     id: "payment_commitment",
     code: "2",
-    color: "#2f8b62",
+    color: "#16a34a",
     label: "Payment Commitment",
     next_step: "Track the promised or confirmed payment and reconcile against incoming funds.",
     description: "The debtor confirms payment was made or gives a specific payment date, amount, or promise to pay.",
@@ -29,7 +29,7 @@ export const defaultCategories = [
   {
     id: "information_logistics",
     code: "3",
-    color: "#2196a3",
+    color: "#06b6d4",
     label: "Information Logistics",
     next_step: "Send the requested payment information, statement, balance, or account reference.",
     description: "The debtor wants to pay or engage but needs EFT details, banking info, balance, statement, reference, or account details.",
@@ -38,7 +38,7 @@ export const defaultCategories = [
   {
     id: "identity_error",
     code: "4",
-    color: "#687f91",
+    color: "#64748b",
     label: "Identity Error",
     next_step: "Flag the contact record for data cleansing and stop person-specific follow-up.",
     description: "The debtor explicitly denies being the person you are looking for or says this is a wrong number.",
@@ -47,7 +47,7 @@ export const defaultCategories = [
   {
     id: "email_pivot",
     code: "5",
-    color: "#7a5cff",
+    color: "#8b5cf6",
     label: "Email Pivot",
     next_step: "Move the conversation or requested documents to the provided email channel.",
     description: "The debtor provides an email address or asks that communication, documents, or statements be sent by email.",
@@ -56,7 +56,7 @@ export const defaultCategories = [
   {
     id: "legal_risk_hostility",
     code: "6",
-    color: "#cf3039",
+    color: "#dc2626",
     label: "Legal Risk & Hostility",
     next_step: "Escalate for compliance or supervisor review before further contact.",
     description: "The debtor is aggressive, uses profanity, mentions harassment, reporting, lawyers, legal action, or says to sue them.",
@@ -65,7 +65,7 @@ export const defaultCategories = [
   {
     id: "general_identity_inquiry",
     code: "7",
-    color: "#bd7632",
+    color: "#f97316",
     label: "General Identity Inquiry",
     next_step: "Respond with debt origin, account context, and verification-safe information.",
     description: "The debtor is confused and asks who is contacting them, what the account is for, or whether this is a scam.",
@@ -74,7 +74,7 @@ export const defaultCategories = [
   {
     id: "financial_hardship",
     code: "8",
-    color: "#bd7632",
+    color: "#f59e0b",
     label: "Financial Hardship",
     next_step: "Route to the hardship or vulnerability workflow for a suitable arrangement.",
     description: "The debtor wants to pay or acknowledges the debt but cannot due to unemployment, illness, bankruptcy, no income, or serious financial difficulty.",
@@ -83,7 +83,7 @@ export const defaultCategories = [
   {
     id: "compliance_opt_out",
     code: "9",
-    color: "#cf3039",
+    color: "#dc2626",
     label: "Compliance Opt-Out",
     next_step: "Record the opt-out request and suppress future SMS contact where legally required.",
     description: "The debtor sends STOP, UNSUBSCRIBE, REMOVE ME, or another clear SMS opt-out command.",
@@ -92,7 +92,7 @@ export const defaultCategories = [
   {
     id: "unknown",
     code: "10",
-    color: "#687f91",
+    color: "#64748b",
     label: "Generic / Ignore",
     next_step: "Archive or leave for low-priority review unless more context is available.",
     description: "The reply is low-value, neutral, unclear, incomplete, gibberish, or does not require a business action.",
